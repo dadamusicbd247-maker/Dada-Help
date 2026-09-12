@@ -23,6 +23,7 @@ export const AudioResultCard: React.FC<AudioResultCardProps> = ({
   const [customFilename, setCustomFilename] = useState(audio.filename);
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadSuccess, setDownloadSuccess] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -39,41 +40,78 @@ export const AudioResultCard: React.FC<AudioResultCardProps> = ({
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handleDownload = () => {
+  const getFullDownloadUrl = () => {
+    const targetFilename = (customFilename || audio.filename || 'downloaded_audio.mp3').trim();
+    let endpoint = audio.directAudioUrl;
+    if (!endpoint.startsWith('/api/download')) {
+      return `/api/download?url=${encodeURIComponent(
+        audio.directAudioUrl
+      )}&filename=${encodeURIComponent(targetFilename)}`;
+    }
+    try {
+      const urlObj = new URL(endpoint, window.location.origin);
+      urlObj.searchParams.set('filename', targetFilename);
+      return urlObj.pathname + urlObj.search;
+    } catch {
+      return endpoint;
+    }
+  };
+
+  const handleDownload = async () => {
     setIsDownloading(true);
     setDownloadSuccess(false);
     setDownloadError(null);
+    setDownloadProgress('Converting & preparing MP3 (320 kbps)...');
 
     const targetFilename = (customFilename || audio.filename || 'downloaded_audio.mp3').trim();
+    const downloadEndpoint = getFullDownloadUrl();
 
     try {
-      let downloadEndpoint = audio.directAudioUrl;
-      if (!downloadEndpoint.startsWith('/api/download')) {
-        downloadEndpoint = `/api/download?url=${encodeURIComponent(
-          audio.directAudioUrl
-        )}&filename=${encodeURIComponent(targetFilename)}`;
-      } else {
+      // 1. Fetch file as Blob via JS to prevent Chrome network drops & IDM interruptions
+      setDownloadProgress('Fetching 320 kbps MP3 stream...');
+      const response = await fetch(downloadEndpoint);
+      if (!response.ok) {
+        let errMsg = `Server returned status ${response.status}`;
         try {
-          const urlObj = new URL(downloadEndpoint, window.location.origin);
-          urlObj.searchParams.set('filename', targetFilename);
-          downloadEndpoint = urlObj.pathname + urlObj.search;
+          const errData = await response.json();
+          if (errData.error) errMsg = errData.error;
         } catch {}
+        throw new Error(errMsg);
       }
 
-      // Trigger direct native browser download
+      setDownloadProgress('Saving MP3 to device...');
+      const blob = await response.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+
+      // 2. Trigger instant local save via Blob (bypasses Chrome network drops and IDM conflicts)
       const a = document.createElement('a');
-      a.href = downloadEndpoint;
+      a.href = blobUrl;
       a.setAttribute('download', targetFilename);
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
 
+      setTimeout(() => {
+        window.URL.revokeObjectURL(blobUrl);
+      }, 30000);
+
       setDownloadSuccess(true);
-      setTimeout(() => setDownloadSuccess(false), 4000);
+      setTimeout(() => setDownloadSuccess(false), 5000);
     } catch (err: any) {
-      console.error('Download trigger error:', err);
+      console.error('Download error:', err);
+      setDownloadError(err?.message || 'Download failed. You can use the Direct IDM link below.');
+      // Fallback: direct browser trigger if fetch fails
+      try {
+        const a = document.createElement('a');
+        a.href = downloadEndpoint;
+        a.setAttribute('download', targetFilename);
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      } catch {}
     } finally {
       setIsDownloading(false);
+      setDownloadProgress(null);
     }
   };
 
@@ -169,12 +207,12 @@ export const AudioResultCard: React.FC<AudioResultCardProps> = ({
           {isDownloading ? (
             <>
               <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-              <span>Generating High Quality MP3...</span>
+              <span>{downloadProgress || 'Preparing 320 kbps MP3...'}</span>
             </>
           ) : downloadSuccess ? (
             <>
               <Check className="w-5 h-5 stroke-[2.5]" />
-              <span>MP3 Download Triggered!</span>
+              <span>MP3 Downloaded Successfully!</span>
             </>
           ) : (
             <>
@@ -195,6 +233,27 @@ export const AudioResultCard: React.FC<AudioResultCardProps> = ({
           <RotateCcw className="w-4 h-4 text-slate-600" />
           <span>Refresh</span>
         </button>
+      </div>
+
+      {/* Error display if any */}
+      {downloadError && (
+        <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-xl flex items-center gap-2 text-xs text-red-700 font-medium">
+          <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
+          <span>{downloadError}</span>
+        </div>
+      )}
+
+      {/* Direct link for IDM or external download managers */}
+      <div className="mt-3.5 pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-slate-500">
+        <span>IDM দিয়ে আলাদাভাবে ডাউনলোড করতে চাইলে:</span>
+        <a
+          href={getFullDownloadUrl()}
+          download={(customFilename || audio.filename || 'downloaded_audio.mp3').trim()}
+          className="inline-flex items-center gap-1.5 font-bold text-emerald-600 hover:text-emerald-700 hover:underline shrink-0"
+        >
+          <Download className="w-3.5 h-3.5" />
+          <span>Direct IDM Download Link</span>
+        </a>
       </div>
     </div>
   );
