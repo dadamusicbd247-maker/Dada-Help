@@ -1,9 +1,11 @@
 import fs from 'fs';
 import path from 'path';
-import { spawn } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
 import crypto from 'crypto';
-
 import os from 'os';
+import axios from 'axios';
+import ffmpegStatic from 'ffmpeg-static';
+
 const CACHE_DIR = path.join(os.tmpdir(), 'audio_mp3_cache');
 if (!fs.existsSync(CACHE_DIR)) {
   try {
@@ -13,19 +15,112 @@ if (!fs.existsSync(CACHE_DIR)) {
 
 const FFMPEG_BIN_DIR = path.resolve(process.cwd(), 'bin');
 
+let ytdlpReadyPromise: Promise<string> | null = null;
+
+export async function ensureYtDlpBinary(): Promise<string> {
+  const isWin = process.platform === 'win32';
+  const binName = isWin ? 'yt-dlp.exe' : 'yt-dlp';
+
+  // 1. Check bin directory
+  const localBin = path.resolve(FFMPEG_BIN_DIR, binName);
+  if (fs.existsSync(localBin) && fs.statSync(localBin).size > 100000) {
+    if (!isWin) {
+      try { fs.chmodSync(localBin, 0o755); } catch {}
+    }
+    return localBin;
+  }
+
+  // 2. Check cache dir
+  const cacheBin = path.join(CACHE_DIR, binName);
+  if (fs.existsSync(cacheBin) && fs.statSync(cacheBin).size > 100000) {
+    if (!isWin) {
+      try { fs.chmodSync(cacheBin, 0o755); } catch {}
+    }
+    return cacheBin;
+  }
+
+  // 3. Check system path (/usr/local/bin, /usr/bin)
+  if (!isWin) {
+    if (fs.existsSync('/usr/local/bin/yt-dlp')) return '/usr/local/bin/yt-dlp';
+    if (fs.existsSync('/usr/bin/yt-dlp')) return '/usr/bin/yt-dlp';
+  }
+
+  try {
+    const check = spawnSync('yt-dlp', ['--version']);
+    if (check.status === 0) return 'yt-dlp';
+  } catch {}
+
+  // 4. Download on-the-fly
+  if (ytdlpReadyPromise) return ytdlpReadyPromise;
+
+  ytdlpReadyPromise = (async () => {
+    try {
+      const targetDir = fs.existsSync(FFMPEG_BIN_DIR) ? FFMPEG_BIN_DIR : CACHE_DIR;
+      if (!fs.existsSync(targetDir)) {
+        fs.mkdirSync(targetDir, { recursive: true });
+      }
+      const targetFile = path.join(targetDir, binName);
+      if (fs.existsSync(targetFile) && fs.statSync(targetFile).size > 100000) {
+        if (!isWin) {
+          try { fs.chmodSync(targetFile, 0o755); } catch {}
+        }
+        return targetFile;
+      }
+
+      const url = isWin
+        ? 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe'
+        : 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp';
+
+      console.log(`[mediaConverter] Downloading yt-dlp binary for ${process.platform} from ${url}...`);
+      const response = await axios.get(url, {
+        responseType: 'arraybuffer',
+        maxRedirects: 5,
+        timeout: 60000,
+      });
+
+      fs.writeFileSync(targetFile, Buffer.from(response.data));
+      if (!isWin) {
+        try { fs.chmodSync(targetFile, 0o755); } catch {}
+      }
+      console.log(`[mediaConverter] yt-dlp binary ready at ${targetFile}`);
+      return targetFile;
+    } catch (dlErr: any) {
+      console.error('[mediaConverter] Failed to download yt-dlp binary:', dlErr?.message);
+      return 'yt-dlp';
+    }
+  })();
+
+  return ytdlpReadyPromise;
+}
+
 export function getYtDlpBinary(): string {
-  const localBin = path.resolve(
-    FFMPEG_BIN_DIR,
-    process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp'
-  );
-  if (fs.existsSync(localBin)) return localBin;
-  if (fs.existsSync('/usr/local/bin/yt-dlp')) return '/usr/local/bin/yt-dlp';
-  if (fs.existsSync('/usr/bin/yt-dlp')) return '/usr/bin/yt-dlp';
+  const isWin = process.platform === 'win32';
+  const binName = isWin ? 'yt-dlp.exe' : 'yt-dlp';
+  const localBin = path.resolve(FFMPEG_BIN_DIR, binName);
+  if (fs.existsSync(localBin)) {
+    if (!isWin) {
+      try { fs.chmodSync(localBin, 0o755); } catch {}
+    }
+    return localBin;
+  }
+  const cacheBin = path.join(CACHE_DIR, binName);
+  if (fs.existsSync(cacheBin)) {
+    if (!isWin) {
+      try { fs.chmodSync(cacheBin, 0o755); } catch {}
+    }
+    return cacheBin;
+  }
+  if (!isWin) {
+    if (fs.existsSync('/usr/local/bin/yt-dlp')) return '/usr/local/bin/yt-dlp';
+    if (fs.existsSync('/usr/bin/yt-dlp')) return '/usr/bin/yt-dlp';
+  }
   return 'yt-dlp';
 }
 
 function getFfmpegLocationArg(): string[] {
-  // If local bin has ffmpeg binary
+  if (ffmpegStatic && typeof ffmpegStatic === 'string' && fs.existsSync(ffmpegStatic)) {
+    return ['--ffmpeg-location', ffmpegStatic];
+  }
   const localFfmpeg = path.join(FFMPEG_BIN_DIR, process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg');
   if (fs.existsSync(localFfmpeg)) {
     return ['--ffmpeg-location', FFMPEG_BIN_DIR];
@@ -56,12 +151,12 @@ export async function convertFacebookToMp3(
   }
 
   const tempTemplate = path.join(CACHE_DIR, `tmp_fb_${hash}_%(id)s.%(ext)s`);
+  const ytdlpBin = await ensureYtDlpBinary();
+  const ffmpegLocationArgs = getFfmpegLocationArg();
+  const safeTitle = title.replace(/[\r\n"'\\]/g, ' ').trim() || 'Facebook Audio';
+  const safeArtist = artist.replace(/[\r\n"'\\]/g, ' ').trim() || 'Facebook Creator';
 
   return new Promise<string>((resolve, reject) => {
-    const ytdlpBin = getYtDlpBinary();
-    const ffmpegLocationArgs = getFfmpegLocationArg();
-    const safeTitle = title.replace(/[\r\n"'\\]/g, ' ').trim() || 'Facebook Audio';
-    const safeArtist = artist.replace(/[\r\n"'\\]/g, ' ').trim() || 'Facebook Creator';
 
     const ytdlp = spawn(ytdlpBin, [
       '--no-warnings',
@@ -155,9 +250,10 @@ export async function convertYouTubeToMp3(
     if (pRes.ok) potRunning = true;
   } catch {}
 
+  const ytdlpBin = await ensureYtDlpBinary();
+  const ffmpegLocationArgs = getFfmpegLocationArg();
+
   return new Promise<string>((resolve, reject) => {
-    const ytdlpBin = getYtDlpBinary();
-    const ffmpegLocationArgs = getFfmpegLocationArg();
 
     const ytdlArgs = [
       '--no-warnings',

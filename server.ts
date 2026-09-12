@@ -5,7 +5,7 @@ import axios from 'axios';
 import { createServer as createViteServer } from 'vite';
 import { analyzeShareLink, sanitizeFilename } from './server/audioExtractor';
 import { getOrConvertSunoMp3, transcodeStreamToMp3 } from './server/sunoDecryptor';
-import { convertFacebookToMp3, convertYouTubeToMp3 } from './server/mediaConverter';
+import { convertFacebookToMp3, convertYouTubeToMp3, ensureYtDlpBinary } from './server/mediaConverter';
 
 const COMMON_USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
@@ -23,6 +23,9 @@ function getDistDir(): string {
 async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
+
+  // Pre-warm yt-dlp binary for Linux / cloud environments
+  ensureYtDlpBinary().catch((err) => console.warn('Pre-warm yt-dlp:', err?.message));
 
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ extended: true, limit: '50mb' }));
