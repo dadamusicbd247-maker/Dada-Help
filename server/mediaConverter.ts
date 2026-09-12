@@ -253,107 +253,126 @@ export async function convertYouTubeToMp3(
   const ytdlpBin = await ensureYtDlpBinary();
   const ffmpegLocationArgs = getFfmpegLocationArg();
 
-  return new Promise<string>((resolve, reject) => {
+  const runAttempt = (playerClients: string): Promise<string> => {
+    return new Promise<string>((resolve, reject) => {
+      const ytdlArgs = [
+        '--no-warnings',
+        '--no-playlist',
+        ...ffmpegLocationArgs,
+        '-x',
+        '--audio-format',
+        'mp3',
+        '--audio-quality',
+        '0', // Best MP3 quality (320kbps / V0)
+        '--geo-bypass',
+        '--socket-timeout',
+        '30',
+      ];
 
-    const ytdlArgs = [
-      '--no-warnings',
-      '--no-playlist',
-      ...ffmpegLocationArgs,
-      '-x',
-      '--audio-format',
-      'mp3',
-      '--audio-quality',
-      '0', // Best MP3 quality (320kbps / V0)
-    ];
-
-    if (potRunning) {
-      ytdlArgs.push(
-        '--extractor-args',
-        'youtubepot:provider=bgutil:http;youtubepot:http_base_url=http://127.0.0.1:4416;youtubepot-bgutilhttp:base_url=http://127.0.0.1:4416'
-      );
-    }
-
-    const safeTitle = title.replace(/[\r\n"'\\]/g, ' ').trim() || 'YouTube Audio';
-    const safeArtist = artist.replace(/[\r\n"'\\]/g, ' ').trim() || 'YouTube Creator';
-
-    ytdlArgs.push(
-      '--postprocessor-args',
-      `FFmpegExtractAudio:-metadata title="${safeTitle}" -metadata artist="${safeArtist}" -b:a 320k`,
-      '-o',
-      tempTemplate
-    );
-
-    // Check for cookie files to bypass bot verification if present
-    const cookieCandidates = [
-      path.join(process.cwd(), 'cookies.txt'),
-      path.join(process.cwd(), 'youtube_cookies.txt'),
-      path.join(os.tmpdir(), 'cookies.txt'),
-      path.join(os.tmpdir(), 'youtube_cookies.txt'),
-    ];
-    for (const cPath of cookieCandidates) {
-      if (fs.existsSync(cPath) && fs.statSync(cPath).size > 10) {
-        ytdlArgs.push('--cookies', cPath);
-        break;
-      }
-    }
-
-    if (process.env.YOUTUBE_COOKIES) {
-      try {
-        const envCookiePath = path.join(os.tmpdir(), 'env_youtube_cookies.txt');
-        fs.writeFileSync(envCookiePath, process.env.YOUTUBE_COOKIES);
-        ytdlArgs.push('--cookies', envCookiePath);
-      } catch {}
-    }
-
-    ytdlArgs.push(urlStr);
-
-    const ytdlp = spawn(ytdlpBin, ytdlArgs);
-
-    let stderr = '';
-    let stdout = '';
-
-    ytdlp.stdout.on('data', (d) => {
-      stdout += d.toString();
-    });
-
-    ytdlp.stderr.on('data', (d) => {
-      stderr += d.toString();
-    });
-
-    ytdlp.on('close', (code) => {
-      if (code === 0) {
-        // Find generated mp3 file matching this hash
-        const files = fs.readdirSync(CACHE_DIR);
-        const match = files.find(
-          (f) => f.startsWith(`tmp_yt_${hash}`) && f.endsWith('.mp3')
+      if (potRunning) {
+        ytdlArgs.push(
+          '--extractor-args',
+          'youtubepot:provider=bgutil:http;youtubepot:http_base_url=http://127.0.0.1:4416;youtubepot-bgutilhttp:base_url=http://127.0.0.1:4416'
         );
+      } else {
+        ytdlArgs.push(
+          '--extractor-args',
+          `youtube:player_client=${playerClients}`
+        );
+      }
 
-        if (match) {
-          const generatedPath = path.join(CACHE_DIR, match);
-          const stat = fs.statSync(generatedPath);
-          if (stat.size > 5000) {
-            try {
-              fs.renameSync(generatedPath, cachedPath);
-              return resolve(cachedPath);
-            } catch {
-              return resolve(generatedPath);
-            }
-          }
+      const safeTitle = title.replace(/[\r\n"'\\]/g, ' ').trim() || 'YouTube Audio';
+      const safeArtist = artist.replace(/[\r\n"'\\]/g, ' ').trim() || 'YouTube Creator';
+
+      ytdlArgs.push(
+        '--postprocessor-args',
+        `FFmpegExtractAudio:-metadata title="${safeTitle}" -metadata artist="${safeArtist}" -b:a 320k`,
+        '-o',
+        tempTemplate
+      );
+
+      // Check for cookie files to bypass bot verification if present
+      const cookieCandidates = [
+        path.join(process.cwd(), 'cookies.txt'),
+        path.join(process.cwd(), 'youtube_cookies.txt'),
+        path.join(os.tmpdir(), 'cookies.txt'),
+        path.join(os.tmpdir(), 'youtube_cookies.txt'),
+      ];
+      for (const cPath of cookieCandidates) {
+        if (fs.existsSync(cPath) && fs.statSync(cPath).size > 10) {
+          ytdlArgs.push('--cookies', cPath);
+          break;
         }
       }
 
-      const rawErr = stderr.slice(-350) || stdout.slice(-350) || 'Unknown error';
-      let message = rawErr;
-      if (rawErr.includes('Sign in to confirm') || rawErr.includes('bot')) {
-        message = 'YouTube bot protection blocked audio extraction. YouTube requires authentication cookies (cookies.txt) for this server IP.';
+      if (process.env.YOUTUBE_COOKIES) {
+        try {
+          const envCookiePath = path.join(os.tmpdir(), 'env_youtube_cookies.txt');
+          fs.writeFileSync(envCookiePath, process.env.YOUTUBE_COOKIES);
+          ytdlArgs.push('--cookies', envCookiePath);
+        } catch {}
       }
 
-      reject(new Error(`YouTube audio extraction failed (code ${code}): ${message}`));
-    });
+      ytdlArgs.push(urlStr);
 
-    ytdlp.on('error', (err) => {
-      reject(err);
+      const ytdlp = spawn(ytdlpBin, ytdlArgs);
+
+      let stderr = '';
+      let stdout = '';
+
+      ytdlp.stdout.on('data', (d) => {
+        stdout += d.toString();
+      });
+
+      ytdlp.stderr.on('data', (d) => {
+        stderr += d.toString();
+      });
+
+      ytdlp.on('close', (code) => {
+        if (code === 0) {
+          // Find generated mp3 file matching this hash
+          const files = fs.readdirSync(CACHE_DIR);
+          const match = files.find(
+            (f) => f.startsWith(`tmp_yt_${hash}`) && f.endsWith('.mp3')
+          );
+
+          if (match) {
+            const generatedPath = path.join(CACHE_DIR, match);
+            const stat = fs.statSync(generatedPath);
+            if (stat.size > 5000) {
+              try {
+                if (fs.existsSync(cachedPath)) {
+                  try { fs.unlinkSync(cachedPath); } catch {}
+                }
+                fs.renameSync(generatedPath, cachedPath);
+                return resolve(cachedPath);
+              } catch {
+                return resolve(generatedPath);
+              }
+            }
+          }
+        }
+
+        const rawErr = stderr.slice(-350) || stdout.slice(-350) || 'Unknown error';
+        let message = rawErr;
+        if (rawErr.includes('Sign in to confirm') || rawErr.includes('bot')) {
+          message = 'YouTube bot protection blocked audio extraction. YouTube requires authentication cookies (cookies.txt) for this server IP.';
+        }
+
+        reject(new Error(`YouTube audio extraction failed (code ${code}): ${message}`));
+      });
+
+      ytdlp.on('error', (err) => {
+        reject(err);
+      });
     });
-  });
+  };
+
+  try {
+    return await runAttempt('android,ios,mweb,web');
+  } catch (err: any) {
+    console.warn('First YouTube attempt failed, retrying with mweb,tv,web client...', err?.message);
+    return await runAttempt('mweb,tv,web');
+  }
 }
 

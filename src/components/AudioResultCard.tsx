@@ -242,19 +242,6 @@ export const AudioResultCard: React.FC<AudioResultCardProps> = ({
           <span>{downloadError}</span>
         </div>
       )}
-
-      {/* Direct link for IDM or external download managers */}
-      <div className="mt-3.5 pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-slate-500">
-        <span>IDM দিয়ে আলাদাভাবে ডাউনলোড করতে চাইলে:</span>
-        <a
-          href={getFullDownloadUrl()}
-          download={(customFilename || audio.filename || 'downloaded_audio.mp3').trim()}
-          className="inline-flex items-center gap-1.5 font-bold text-emerald-600 hover:text-emerald-700 hover:underline shrink-0"
-        >
-          <Download className="w-3.5 h-3.5" />
-          <span>Direct IDM Download Link</span>
-        </a>
-      </div>
     </div>
   );
 };
