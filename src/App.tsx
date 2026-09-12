@@ -116,7 +116,18 @@ export default function App() {
         body: JSON.stringify({ url: url.trim(), platform: activePlatform }),
       });
 
-      const data = await response.json();
+      const text = await response.text();
+      let data: any = {};
+      try {
+        data = JSON.parse(text);
+      } catch {
+        // Server returned HTML (Render cold start / error page)
+        throw new Error(
+          response.status === 502 || response.status === 503
+            ? 'Server is starting up (cold start). Please wait 10–20 seconds and try again.'
+            : `Server error (${response.status}). Please try again.`
+        );
+      }
 
       if (!response.ok || !data.success) {
         throw new Error(
