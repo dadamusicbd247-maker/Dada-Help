@@ -1,0 +1,25 @@
+{
+  "short_name": "DADA MUSIC",
+  "name": "DADA MUSIC BD - 320 kbps MP3 Downloader",
+  "description": "High Quality 320 kbps MP3 Audio Downloader from Suno, YouTube, Facebook & Direct Audio Links.",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#ffffff",
+  "theme_color": "#059669",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "categories": ["music", "entertainment", "utilities"]
+}

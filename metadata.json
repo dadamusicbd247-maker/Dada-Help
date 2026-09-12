@@ -1,0 +1,6 @@
+{
+  "name": "DADA MUSIC BD",
+  "description": "DADA MUSIC BD - High Quality 320 kbps MP3 Audio Downloader from Suno, Cloud Drives & Direct Audio Links.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
