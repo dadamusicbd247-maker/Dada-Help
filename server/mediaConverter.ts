@@ -369,10 +369,16 @@ export async function convertYouTubeToMp3(
   };
 
   try {
-    return await runAttempt('android,ios,mweb,web');
+    // visionos client bypasses YouTube bot protection without cookies
+    return await runAttempt('visionos');
   } catch (err: any) {
-    console.warn('First YouTube attempt failed, retrying with mweb,tv,web client...', err?.message);
-    return await runAttempt('mweb,tv,web');
+    console.warn('visionos attempt failed, retrying with android,ios client...', err?.message);
+    try {
+      return await runAttempt('android,ios,mweb,web');
+    } catch (err2: any) {
+      console.warn('Second YouTube attempt failed, retrying with web client...', err2?.message);
+      return await runAttempt('web');
+    }
   }
 }
 
