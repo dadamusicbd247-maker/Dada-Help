@@ -60,6 +60,8 @@ export async function convertFacebookToMp3(
   return new Promise<string>((resolve, reject) => {
     const ytdlpBin = getYtDlpBinary();
     const ffmpegLocationArgs = getFfmpegLocationArg();
+    const safeTitle = title.replace(/[\r\n"'\\]/g, ' ').trim() || 'Facebook Audio';
+    const safeArtist = artist.replace(/[\r\n"'\\]/g, ' ').trim() || 'Facebook Creator';
 
     const ytdlp = spawn(ytdlpBin, [
       '--no-warnings',
@@ -71,7 +73,7 @@ export async function convertFacebookToMp3(
       '--audio-quality',
       '0', // Best MP3 quality (320kbps / V0)
       '--postprocessor-args',
-      `FFmpegExtractAudio:-metadata title="${title.replace(/"/g, '')}" -metadata artist="${artist.replace(/"/g, '')}" -b:a 320k`,
+      `FFmpegExtractAudio:-metadata title="${safeTitle}" -metadata artist="${safeArtist}" -b:a 320k`,
       '-o',
       tempTemplate,
       urlStr,
@@ -175,9 +177,12 @@ export async function convertYouTubeToMp3(
       );
     }
 
+    const safeTitle = title.replace(/[\r\n"'\\]/g, ' ').trim() || 'YouTube Audio';
+    const safeArtist = artist.replace(/[\r\n"'\\]/g, ' ').trim() || 'YouTube Creator';
+
     ytdlArgs.push(
       '--postprocessor-args',
-      `FFmpegExtractAudio:-metadata title="${title.replace(/"/g, '')}" -metadata artist="${artist.replace(/"/g, '')}" -b:a 320k`,
+      `FFmpegExtractAudio:-metadata title="${safeTitle}" -metadata artist="${safeArtist}" -b:a 320k`,
       '-o',
       tempTemplate
     );
@@ -186,8 +191,8 @@ export async function convertYouTubeToMp3(
     const cookieCandidates = [
       path.join(process.cwd(), 'cookies.txt'),
       path.join(process.cwd(), 'youtube_cookies.txt'),
-      '/tmp/cookies.txt',
-      '/tmp/youtube_cookies.txt',
+      path.join(os.tmpdir(), 'cookies.txt'),
+      path.join(os.tmpdir(), 'youtube_cookies.txt'),
     ];
     for (const cPath of cookieCandidates) {
       if (fs.existsSync(cPath) && fs.statSync(cPath).size > 10) {
@@ -198,7 +203,7 @@ export async function convertYouTubeToMp3(
 
     if (process.env.YOUTUBE_COOKIES) {
       try {
-        const envCookiePath = '/tmp/env_youtube_cookies.txt';
+        const envCookiePath = path.join(os.tmpdir(), 'env_youtube_cookies.txt');
         fs.writeFileSync(envCookiePath, process.env.YOUTUBE_COOKIES);
         ytdlArgs.push('--cookies', envCookiePath);
       } catch {}
@@ -206,7 +211,7 @@ export async function convertYouTubeToMp3(
 
     ytdlArgs.push(urlStr);
 
-    const ytdlp = spawn(YTDLP_BIN, ytdlArgs);
+    const ytdlp = spawn(ytdlpBin, ytdlArgs);
 
     let stderr = '';
     let stdout = '';
